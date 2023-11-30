@@ -1,0 +1,12 @@
+---
+title: "p8105_hw6_th3072"
+output: github_document
+---
+```{r}
+library(tidyverse)
+```
+
+```{r}
+
+```
+
