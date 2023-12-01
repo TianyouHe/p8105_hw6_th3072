@@ -4,9 +4,75 @@ output: github_document
 ---
 ```{r}
 library(tidyverse)
+library(modelr)
+```
+
+# Problem 1
+```{r}
+homicides <- read.csv("./hw6_data/homicide-data.csv", na = c("", "NA", "Unknown"))
+
+homicides <- homicides |>
+  mutate(city_state = str_c(city, state, sep = ", "),
+         resolution = case_when(
+         disposition %in% c("Closed without arrest", "Open/No arrest") ~ 0,
+         disposition == "Closed by arrest" ~ 1),
+         victim_age = as.numeric(victim_age),
+         )|>
+  filter(!city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO", "Tulsa, AL"))|> 
+           filter(victim_race %in% c("White", "Black"))|>
+  select(city_state, resolution, victim_age, victim_sex, victim_race)
 ```
 
 ```{r}
+baltimore_glm <- homicides |>
+  filter(city_state == "Baltimore, MD") |>
+  glm(formula = resolution ~ victim_age + victim_sex + victim_race, data = _, family = binomial())
 
+baltimore_glm |> 
+  broom::tidy() |> 
+  mutate(
+    OR = exp(estimate), 
+    OR_CI_upper = exp(estimate + 1.96 * std.error),
+    OR_CI_lower = exp(estimate - 1.96 * std.error)) |> 
+  filter(term == "victim_sexMale") |> 
+  select(OR, OR_CI_lower, OR_CI_upper) |>
+  knitr::kable()
+```
+
+```{r}
+model_results <- homicides |>
+  group_by(city_state) |>
+  nest() |>
+  mutate(
+    models = map(data, function(df) {
+      glm(resolution ~ victim_age + victim_sex + victim_race, family = binomial(), data = df)
+    }),
+    tidy_models = map(models, broom::tidy)
+  ) |>
+  select(-models, -data) |>
+  unnest(cols = tidy_models) |>
+  mutate(
+    OR = exp(estimate),
+    OR_CI_upper = exp(estimate + 1.96 * std.error),
+    OR_CI_lower = exp(estimate - 1.96 * std.error)
+  ) |>
+  filter(term == "victim_sexMale") |>
+  select(city_state, OR, OR_CI_lower, OR_CI_upper) |>
+  ungroup()
+
+model_results |>
+  knitr::kable()
+
+```
+
+```{r}
+model_results |>
+  mutate(city_state = fct_reorder(city_state, OR)) |>
+  ggplot(aes(x = city_state, y = OR)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = OR_CI_lower, ymax = OR_CI_upper)) +
+  coord_flip() +  
+  labs(x = "city_state", y = "OR") +
+  theme_minimal()
 ```
 
