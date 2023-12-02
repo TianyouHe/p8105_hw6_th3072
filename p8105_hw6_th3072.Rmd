@@ -5,6 +5,8 @@ output: github_document
 ```{r}
 library(tidyverse)
 library(modelr)
+library(mgcv)
+set.seed(1)
 ```
 
 # Problem 1
@@ -90,6 +92,139 @@ weather_df =
     tmax = tmax / 10) |>
   select(name, id, everything())
 ```
+```{r}
+boot_sample = function(df) {
+  sample_frac(df, replace = TRUE)
+}
+```
+
+```{r}
+boot_straps = 
+  tibble(strap_number = 1:5000) |> 
+  mutate(
+    strap_sample = map(strap_number, \(i) boot_sample(df = weather_df))
+  )
+```
+
+```{r}
+bootstrap_results = 
+  boot_straps |> 
+  mutate(
+    models = map(strap_sample, \(df) lm(tmax ~ tmin + prcp, data = df)),
+    glance_data = map(models, broom::glance),
+    tidy_data = map(models, broom::tidy)
+  ) |> 
+  select(-strap_sample, -models)
+```
+
+```{r}
+bootstrap_estimates = 
+  bootstrap_results |> 
+  mutate(
+    r_squared = map_dbl(glance_data, \(g) g$r.squared),
+    log_beta_product = map_dbl(tidy_data, \(t) {
+      beta1 = t$estimate[t$term == "tmin"]
+      beta2 = t$estimate[t$term == "prcp"]
+      log(beta1 * beta2)
+    })
+  ) |> 
+  select(r_squared, log_beta_product)
+```
+
+```{r}
+ci_r_squared = bootstrap_estimates |>
+  pull(r_squared) |>
+  quantile(c(0.025, 0.975))
+
+ci_log_beta = bootstrap_estimates |>
+  pull(log_beta_product) |>
+  quantile(c(0.025, 0.975), na.rm = TRUE)
+```
+
+```{r}
+ggplot(bootstrap_estimates, aes(x = r_squared)) +
+  geom_histogram(fill = "blue", color = "black") +
+  labs(title = "Distribution of R^2 Estimates", x = "R^2")
+
+ggplot(bootstrap_estimates, aes(x = log_beta_product)) +
+  geom_histogram(fill = "red", color = "black") +
+  labs(title = "Distribution of log(beta1 * beta2) Estimates", x = "log(beta1 * beta2)")
+
+```
+*Answer: *
+# Problem 3
+
+```{r}
+birthweight <- read.csv("./hw6_data/birthweight.csv")
+```
+
+```{r}
+birthweight <- birthweight |>
+  mutate(
+    babysex = as_factor(babysex),
+    frace = as_factor(frace),
+    mrace = as_factor(mrace)
+  )
+
+# check missing value
+sum(is.na(birthweight))
+```
+
+```{r}
+test_regression_model <- lm(bwt ~ ., data = birthweight)
+summary(test_regression_model)
+
+# chose those who p-value < 0.05
+birthweight_regression_model <- lm(bwt ~ babysex + bhead + blength + delwt + gaweeks + parity + smoken, data = birthweight)
+
+residuals <- birthweight |>
+  add_predictions(birthweight_regression_model, var = "pred") |>
+  add_residuals(birthweight_regression_model, var = "resid")
+```
+
+```{r}
+ggplot(residuals, aes(x = pred, y = resid)) +
+  geom_point() +
+  labs(x = "Fitted Values", y = "Residuals")
+```
 
 
 
+
+```{r}
+# Model comparison using cross-validation
+cv_folds <- crossv_mc(birthweight, 100) # 10-fold cross-validation
+
+# Define a function to calculate RMSE
+calc_rmse <- function(model, data) {
+  sqrt(mean((model$resid)^2))
+}
+
+# Apply models to each fold using purrr
+cv_results <- cv_folds |>
+  mutate(
+    model0 = map(train, \(df) lm(bwt ~ delwt + gaweeks + smoken, data = df)),
+    model1 = map(train, \(df) lm(bwt ~ blength + gaweeks, data = df)),
+    model2 = map(train, \(df) lm(bwt ~ bhead + blength + babysex + bhead * blength + blength * babysex + bhead * babysex + bhead * blength * babysex, data = df)),
+    rmse0 = map2_dbl(model0, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse1 = map2_dbl(model1, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse2 = map2_dbl(model2, test, \(mod, df) rmse(model = mod, data = df))
+  )
+# Calculate average RMSE for each model
+average_rmse1 <- mean(cv_results$rmse1)
+average_rmse2 <- mean(cv_results$rmse2)
+
+```
+
+```{r}
+cv_results |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") |> 
+  mutate(model = fct_inorder(model)) |> 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+```
+*Answer: * In this Graph, we can clearly see that rmse2 < rmse1 < rmse0. Therefore, my model has the highest RMSE values, suggesting that it may be the least accurate model. In contrast, Model 2 has the lowest RMSE values and the smallest variability, suggesting that it is the most accurate and consistent model of the three.
