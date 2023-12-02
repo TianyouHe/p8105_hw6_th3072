@@ -152,6 +152,8 @@ ggplot(bootstrap_estimates, aes(x = log_beta_product)) +
 
 ```
 *Answer: *
+
+
 # Problem 3
 
 ```{r}
@@ -188,19 +190,10 @@ ggplot(residuals, aes(x = pred, y = resid)) +
   labs(x = "Fitted Values", y = "Residuals")
 ```
 
-
-
-
 ```{r}
 # Model comparison using cross-validation
-cv_folds <- crossv_mc(birthweight, 100) # 10-fold cross-validation
+cv_folds <- crossv_mc(birthweight, 100) 
 
-# Define a function to calculate RMSE
-calc_rmse <- function(model, data) {
-  sqrt(mean((model$resid)^2))
-}
-
-# Apply models to each fold using purrr
 cv_results <- cv_folds |>
   mutate(
     model0 = map(train, \(df) lm(bwt ~ delwt + gaweeks + smoken, data = df)),
@@ -210,10 +203,6 @@ cv_results <- cv_folds |>
     rmse1 = map2_dbl(model1, test, \(mod, df) rmse(model = mod, data = df)),
     rmse2 = map2_dbl(model2, test, \(mod, df) rmse(model = mod, data = df))
   )
-# Calculate average RMSE for each model
-average_rmse1 <- mean(cv_results$rmse1)
-average_rmse2 <- mean(cv_results$rmse2)
-
 ```
 
 ```{r}
